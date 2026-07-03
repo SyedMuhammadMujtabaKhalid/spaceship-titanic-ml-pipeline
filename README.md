@@ -275,7 +275,7 @@ SHAP was used to interpret model predictions.
 
 ### SHAP Summary
 
-![SHAP Summary](screenshots/shap_summary.png)
+![SHAP Summary](assets/shap_summary.png)
 
 ---
 
@@ -287,15 +287,15 @@ SHAP was used to interpret model predictions.
 
 ### Model Comparison
 
-![Model Comparison](screenshots/model_comparison.png)
+![Model Comparison](assets/model_comparison.png)
 
-### SHAP Summary
+### Correlation Heatmap
 
-![SHAP Summary](screenshots/shap_summary.png)
+![SHAP Summary](assets/correlation_heatmap.png)
 
-### Kaggle Leaderboard
+### Target Distribution
 
-![Leaderboard](screenshots/leaderboard.png)
+![Leaderboard](assets/target_distribution.png)
 
 ---
 

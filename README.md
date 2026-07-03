@@ -12,21 +12,21 @@ I built this as a proper portfolio project, not just a quick Kaggle submission. 
 
 The notebook covers the full pipeline from raw data to submission file. The main technical decisions I made:
 
-**Leakage-free preprocessing** — I wrap all imputation and feature engineering inside a function that fits on the training fold and transforms the validation fold separately. A lot of Kaggle notebooks concatenate train and test before computing group sizes or filling missing values, which leaks information into CV. This doesn't.
+**Leakage-free preprocessing :** I wrap all imputation and feature engineering inside a function that fits on the training fold and transforms the validation fold separately. A lot of Kaggle notebooks concatenate train and test before computing group sizes or filling missing values, which leaks information into CV. This doesn't.
 
-**GroupKFold validation** — Passengers travelling together share a group ID in the data. If you split them randomly across folds, the model learns group-level patterns it wouldn't have at test time and your CV score is inflated. GroupKFold keeps each group in one fold only.
+**GroupKFold validation :**  Passengers travelling together share a group ID in the data. If you split them randomly across folds, the model learns group-level patterns it wouldn't have at test time and your CV score is inflated. GroupKFold keeps each group in one fold only.
 
-**Optuna with pruning** — 30 trials searching LightGBM's hyperparameter space. I originally ran 100 and saw the score plateau around trial 25, so 30 is plenty here. I wrote a custom pruning callback instead of using the Optuna-LightGBM integration because the integration had a metric direction conflict that was crashing every trial.
+**Optuna with pruning :**  30 trials searching LightGBM's hyperparameter space. I originally ran 100 and saw the score plateau around trial 25, so 30 is plenty here. I wrote a custom pruning callback instead of using the Optuna-LightGBM integration because the integration had a metric direction conflict that was crashing every trial.
 
-**LightGBM + CatBoost ensemble** — I tested XGBoost as a third model and ran the ablation properly (same folds, same preprocessing). It made the ensemble worse on this dataset, so I dropped it. Both remaining models use native categorical handling — no LabelEncoder.
+**LightGBM + CatBoost ensemble :**  I tested XGBoost as a third model and ran the ablation properly (same folds, same preprocessing). It made the ensemble worse on this dataset, so I dropped it. Both remaining models use native categorical handling — no LabelEncoder.
 
-**Threshold tuning** — Default 0.5 threshold assumes perfectly calibrated probabilities. I sweep from 0.30 to 0.70 on OOF predictions and pick the cutoff that actually maximises accuracy.
+**Threshold tuning :**  Default 0.5 threshold assumes perfectly calibrated probabilities. I sweep from 0.30 to 0.70 on OOF predictions and pick the cutoff that actually maximises accuracy.
 
-**SHAP** — Computed on the training set only. The explainer never sees test data.
+**SHAP :**  Computed on the training set only. The explainer never sees test data.
 
 ---
 
-## Results
+## Results:
 
 Final CV accuracy (GroupKFold, 5 folds): ~0.817 for the ensemble. CatBoost and LightGBM individually sit around 0.814-0.815.
 

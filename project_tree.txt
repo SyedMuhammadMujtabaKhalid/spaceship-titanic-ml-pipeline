@@ -1,0 +1,25 @@
+﻿spaceship-titanic-ml-pipeline/
+|
++-- assets/
+|   +-- target_distribution.png
+|   +-- correlation_heatmap.png
+|   +-- feature_importance.png
+|   +-- model_comparison.png
+|   +-- shap_summary.png
+|
++-- data/
+|   +-- train.csv
+|   +-- test.csv
+|   +-- sample_submission.csv
+|
++-- notebooks/
+|   +-- spaceship-titanic-ml-pipeline.ipynb
+|
++-- outputs/                  (auto-generated, not committed)
+|
++-- README.md
++-- requirements.txt
++-- .gitignore
++-- LICENSE
++-- CONTRIBUTING.md
++-- project_tree.txt

@@ -3,7 +3,7 @@
 # Spaceship Titanic
 
 A machine learning solution for the [Kaggle Spaceship Titanic](https://www.kaggle.com/competitions/spaceship-titanic) competition. The task is to predict which passengers were transported to an alternate dimension when the ship collided with a spacetime anomaly.
-
+</div>
 I built this as a proper portfolio project, not just a quick Kaggle submission. The focus was on doing the data science correctly — clean validation, no leakage, decisions backed by ablation rather than guesswork.
 
 ---

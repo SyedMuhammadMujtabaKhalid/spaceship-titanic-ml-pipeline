@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚀 Spaceship Titanic — Senior ML Pipeline
+# Spaceship Titanic
 
 ### Optuna · Leakage-Free GroupKFold · LightGBM + CatBoost Ensemble · SHAP Explainability
 

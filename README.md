@@ -283,7 +283,7 @@ SHAP was used to interpret model predictions.
 
 ### Feature Importance
 
-![Feature Importance](screenshots/feature_importance.png)
+![Feature Importance](assets/feature_importance.png)
 
 ### Model Comparison
 

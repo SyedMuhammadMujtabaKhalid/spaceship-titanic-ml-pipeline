@@ -2,97 +2,401 @@
 
 # Spaceship Titanic
 
-A machine learning solution for the [Kaggle Spaceship Titanic](https://www.kaggle.com/competitions/spaceship-titanic) competition. The task is to predict which passengers were transported to an alternate dimension when the ship collided with a spacetime anomaly.
+Predicting passenger transportation using gradient boosting models, group-aware validation, feature ablation, and model ensembling.
+
+[![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)](https://python.org)
+[![LightGBM](https://img.shields.io/badge/LightGBM-orange)](https://lightgbm.readthedocs.io)
+[![CatBoost](https://img.shields.io/badge/CatBoost-yellow)](https://catboost.ai)
+[![Optuna](https://img.shields.io/badge/Optuna-blueviolet)](https://optuna.org)
+[![SHAP](https://img.shields.io/badge/SHAP-Explainability-success)](https://shap.readthedocs.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
 </div>
-I built this as a proper portfolio project, not just a quick Kaggle submission. The focus was on doing the data science correctly — clean validation, no leakage, decisions backed by ablation rather than guesswork.
 
 ---
 
-## What's in here
+## Overview
 
-The notebook covers the full pipeline from raw data to submission file. The main technical decisions I made:
+This repository contains my solution for Kaggle's **Spaceship Titanic** competition.
 
-**Leakage-free preprocessing :** I wrap all imputation and feature engineering inside a function that fits on the training fold and transforms the validation fold separately. A lot of Kaggle notebooks concatenate train and test before computing group sizes or filling missing values, which leaks information into CV. This doesn't.
+The objective is to predict whether a passenger was transported to another dimension after the Spaceship Titanic collided with a spacetime anomaly.
 
-**GroupKFold validation :**  Passengers travelling together share a group ID in the data. If you split them randomly across folds, the model learns group-level patterns it wouldn't have at test time and your CV score is inflated. GroupKFold keeps each group in one fold only.
+Rather than relying on heavy feature engineering, this project focuses on building a reliable tabular machine learning workflow using:
 
-**Optuna with pruning :**  30 trials searching LightGBM's hyperparameter space. I originally ran 100 and saw the score plateau around trial 25, so 30 is plenty here. I wrote a custom pruning callback instead of using the Optuna-LightGBM integration because the integration had a metric direction conflict that was crashing every trial.
+- Leakage-aware validation
+- Fold-safe preprocessing
+- Feature ablation
+- Hyperparameter optimization
+- Probability threshold tuning
+- Model ensembling
+- SHAP explainability
 
-**LightGBM + CatBoost ensemble :**  I tested XGBoost as a third model and ran the ablation properly (same folds, same preprocessing). It made the ensemble worse on this dataset, so I dropped it. Both remaining models use native categorical handling — no LabelEncoder.
-
-**Threshold tuning :**  Default 0.5 threshold assumes perfectly calibrated probabilities. I sweep from 0.30 to 0.70 on OOF predictions and pick the cutoff that actually maximises accuracy.
-
-**SHAP :**  Computed on the training set only. The explainer never sees test data.
-
----
-
-## Results:
-
-Final CV accuracy (GroupKFold, 5 folds): ~0.817 for the ensemble. CatBoost and LightGBM individually sit around 0.814-0.815.
-
-![Model Comparison](assets/model_comparison.png)
-
-![SHAP Summary](assets/shap_summary.png)
-
-The two biggest drivers are `CryoSleep` (passengers in cryo almost always got transported) and `TotalSpend` (high spenders were awake and much less likely to be transported). Not surprising when you think about it.
-
-![Feature Importance](assets/feature_importance.png)
+The final solution combines **LightGBM** and **CatBoost** models trained using **GroupKFold cross-validation**.
 
 ---
 
-## Setup
+## Competition
+
+**Kaggle Competition:**  
+https://www.kaggle.com/competitions/spaceship-titanic
+
+### Problem Type
+
+Binary Classification
+
+Target:
+
+```python
+Transported = True / False
+```
+
+---
+
+## Dataset
+
+| Dataset | Rows |
+|----------|----------|
+| Train | 8,693 |
+| Test | 4,277 |
+
+### Available Features
+
+#### Passenger Information
+
+- HomePlanet
+- Destination
+- Age
+- VIP
+- CryoSleep
+
+#### Cabin Information
+
+- Cabin
+- Deck
+- Side
+
+#### Spending Information
+
+- RoomService
+- FoodCourt
+- ShoppingMall
+- Spa
+- VRDeck
+
+---
+
+## Validation Strategy
+
+One important characteristic of this dataset is that passengers often travel in groups.
+
+Multiple passengers can share the same group identifier inside `PassengerId`.
+
+Using standard KFold can leak information between training and validation folds because members of the same group may appear in both sets.
+
+To prevent this:
+
+```python
+GroupKFold(n_splits=5)
+```
+
+was used throughout the project.
+
+The passenger group extracted from `PassengerId` is treated as the grouping variable.
+
+This ensures that all members of a travel group remain inside the same fold.
+
+---
+
+## Data Preparation
+
+The preprocessing pipeline was designed to avoid information leakage.
+
+### Missing Value Handling
+
+Categorical variables:
+
+- HomePlanet
+- Destination
+- CryoSleep
+- VIP
+- Deck
+- Side
+
+are imputed using statistics learned from the training fold only.
+
+Numerical variables:
+
+- Age
+- RoomService
+- FoodCourt
+- ShoppingMall
+- Spa
+- VRDeck
+
+are filled using fold-specific medians.
+
+### Cabin Parsing
+
+The Cabin feature is split into:
+
+- Deck
+- Cabin Number
+- Side
+
+These features provide more useful information than the original Cabin string.
+
+---
+
+## Feature Engineering
+
+Several engineered features were tested through ablation studies.
+
+### Retained Features
+
+#### TotalSpend
+
+```python
+TotalSpend =
+RoomService +
+FoodCourt +
+ShoppingMall +
+Spa +
+VRDeck
+```
+
+Provides a strong signal regarding passenger behaviour.
+
+#### GroupSize
+
+Number of passengers travelling within the same group.
+
+Calculated using training-fold information only.
+
+---
+
+### Removed Features
+
+The following features were tested but ultimately removed:
+
+- Age bins
+- IsChild
+- Spend ratios
+- Log-transformed spending variables
+- Manual interaction features
+- Family-based statistics
+- Hand-crafted spending categories
+
+These additions either produced no measurable improvement or increased complexity without improving validation performance.
+
+---
+
+## Hyperparameter Optimization
+
+LightGBM hyperparameters were tuned using Optuna.
+
+### Search Process
+
+- 5-Fold GroupKFold CV
+- MedianPruner
+- Accuracy-based optimization
+- Early stopping of weak trials
+
+Parameters searched included:
+
+- Learning Rate
+- Number of Leaves
+- Maximum Depth
+- Regularization
+- Subsampling
+- Column Sampling
+
+---
+
+## Models
+
+### LightGBM
+
+Used as the primary gradient boosting model.
+
+Advantages:
+
+- Fast training
+- Native categorical support
+- Strong performance on tabular data
+
+### CatBoost
+
+Used as the second ensemble component.
+
+Advantages:
+
+- Excellent handling of categorical variables
+- Robust performance with minimal preprocessing
+
+---
+
+## Ensemble
+
+A soft-voting ensemble was evaluated using out-of-fold predictions.
+
+```python
+Ensemble =
+(LightGBM + CatBoost) / 2
+```
+
+XGBoost was also tested during experimentation but was removed after ablation testing showed no consistent improvement over the two-model ensemble.
+
+---
+
+## Threshold Optimization
+
+Instead of always using:
+
+```python
+0.50
+```
+
+as the classification threshold, thresholds were evaluated over a range of probabilities using out-of-fold predictions.
+
+This allowed the final decision boundary to be selected using validation data rather than assumptions.
+
+---
+
+## Model Explainability
+
+SHAP was used to interpret model predictions.
+
+### Main Findings
+
+- TotalSpend is one of the strongest predictors.
+- CryoSleep has a major impact on transportation probability.
+- Spending behaviour strongly influences predictions.
+- Age contributes non-linear effects.
+
+### SHAP Summary
+
+![SHAP Summary](screenshots/shap_summary.png)
+
+---
+
+## Visualizations
+
+### Feature Importance
+
+![Feature Importance](screenshots/feature_importance.png)
+
+### Model Comparison
+
+![Model Comparison](screenshots/model_comparison.png)
+
+### SHAP Summary
+
+![SHAP Summary](screenshots/shap_summary.png)
+
+### Kaggle Leaderboard
+
+![Leaderboard](screenshots/leaderboard.png)
+
+---
+
+## Results
+
+| Model | Cross Validation Accuracy |
+|---------|---------|
+| LightGBM | Generated during execution |
+| CatBoost | Generated during execution |
+| LightGBM + CatBoost Ensemble | Generated during execution |
+
+All scores are calculated using out-of-fold predictions from GroupKFold validation.
+
+---
+
+## Project Structure
+
+```text
+spaceship-titanic-ml-pipeline/
+│
+├── notebook/
+│   └── spaceship-titanic-ml-pipeline.ipynb
+│
+├── screenshots/
+│   ├── feature_importance.png
+│   ├── shap_summary.png
+│   ├── model_comparison.png
+│   └── leaderboard.png
+│
+├── outputs/
+│   └── submission.csv
+│
+├── requirements.txt
+├── README.md
+├── LICENSE
+└── .gitignore
+```
+
+---
+
+## Installation
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/SyedMuhammadMujtabaKhalid/spaceship-titanic-ml-pipeline.git
 cd spaceship-titanic-ml-pipeline
+```
+
+Create a virtual environment:
+
+```bash
+python -m venv venv
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-Download `train.csv` and `test.csv` from the [Kaggle competition page](https://www.kaggle.com/competitions/spaceship-titanic/data) and put them in the `data/` folder.
+---
 
-Then open the notebook and run all cells top to bottom:
+## Running the Project
+
+Open the notebook:
 
 ```bash
-jupyter notebook notebooks/spaceship-titanic-ml-pipeline.ipynb
+jupyter notebook notebook/spaceship-titanic-ml-pipeline.ipynb
 ```
 
-It'll run the Optuna search, train the ensemble, and write a `submission.csv` to `outputs/`.
+Run all cells to:
+
+- Load data
+- Perform preprocessing
+- Train models
+- Optimize hyperparameters
+- Generate SHAP analysis
+- Create final Kaggle submission
 
 ---
 
-## Repo structure
+## Lessons Learned
 
-```
-spaceship-titanic-ml-pipeline/
-├── assets/               # charts for the README
-├── data/                 # train.csv, test.csv (not committed)
-├── notebooks/
-│   └── spaceship-titanic-ml-pipeline.ipynb
-├── outputs/              # submission.csv lands here (not committed)
-├── requirements.txt
-├── .gitignore
-├── LICENSE
-└── CONTRIBUTING.md
-```
+- Simpler feature sets often outperform heavily engineered alternatives.
+- Group-aware validation is critical when observations belong to the same entity.
+- Native categorical handling can reduce preprocessing complexity.
+- Small improvements from threshold tuning can still be meaningful in Kaggle competitions.
+- Ablation studies are useful for identifying unnecessary features.
 
 ---
 
-## A few things I'd try next
+## Author
 
-Pseudo-labelling is the obvious next step — take test predictions the model is very confident about and add them to training. It's a bit rough but it genuinely helps on Kaggle. After that I'd look at stacking: train a simple meta-learner on the OOF probability vectors from each model instead of just averaging them.
+### Syed Muhammad Mujtaba Khalid
 
-The feature set is deliberately minimal right now. I tested age bins, log transforms, spending ratios, and a bunch of interaction terms. None of them moved the CV score, so they're all gone.
+Machine Learning • Data Science • Computer Vision
 
----
-
-## Dataset overview
-
-![Target Distribution](assets/target_distribution.png)
-
-![Correlation Heatmap](assets/correlation_heatmap.png)
-
-~8,700 training passengers, ~4,300 test. Target is nearly balanced at 50.4% transported, so no resampling needed. Missing values appear in almost every column which makes the imputation strategy non-trivial.
+GitHub:
+https://github.com/SyedMuhammadMujtabaKhalid
 
 ---
 
-Made by [Syed Muhammad Mujtaba Khalid](https://github.com/SyedMuhammadMujtabaKhalid)
+⭐ If you found this project useful, consider starring the repository.

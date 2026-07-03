@@ -2,200 +2,73 @@
 
 # Spaceship Titanic
 
-### Optuna · Leakage-Free GroupKFold · LightGBM + CatBoost Ensemble · SHAP Explainability
+A machine learning solution for the [Kaggle Spaceship Titanic](https://www.kaggle.com/competitions/spaceship-titanic) competition. The task is to predict which passengers were transported to an alternate dimension when the ship collided with a spacetime anomaly.
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://python.org)
-[![LightGBM](https://img.shields.io/badge/LightGBM-4.0%2B-orange)](https://lightgbm.readthedocs.io)
-[![CatBoost](https://img.shields.io/badge/CatBoost-1.2%2B-yellow)](https://catboost.ai)
-[![Optuna](https://img.shields.io/badge/Optuna-3.0%2B-blueviolet)](https://optuna.org)
-[![SHAP](https://img.shields.io/badge/SHAP-Explainability-success)](https://shap.readthedocs.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Kaggle](https://img.shields.io/badge/Kaggle-Competition-20BEFF?logo=kaggle)](https://www.kaggle.com/competitions/spaceship-titanic)
-
-</div>
+I built this as a proper portfolio project, not just a quick Kaggle submission. The focus was on doing the data science correctly — clean validation, no leakage, decisions backed by ablation rather than guesswork.
 
 ---
 
-## Project Overview
+## What's in here
 
-A **production-grade, Kaggle-competitive** machine learning pipeline predicting which passengers of the Spaceship Titanic were transported to an alternate dimension. This project prioritises **mathematical rigour and pipeline integrity** over model complexity — demonstrating that strict leakage prevention, ablation-driven feature selection, and automated hyperparameter tuning produce more reliable results than "kitchen-sink" engineering.
+The notebook covers the full pipeline from raw data to submission file. The main technical decisions I made:
 
----
+**Leakage-free preprocessing** — I wrap all imputation and feature engineering inside a function that fits on the training fold and transforms the validation fold separately. A lot of Kaggle notebooks concatenate train and test before computing group sizes or filling missing values, which leaks information into CV. This doesn't.
 
-## Business Problem
+**GroupKFold validation** — Passengers travelling together share a group ID in the data. If you split them randomly across folds, the model learns group-level patterns it wouldn't have at test time and your CV score is inflated. GroupKFold keeps each group in one fold only.
 
-The Spaceship Titanic collided with a spacetime anomaly, causing ~8,700 passengers to be transported to an alternate dimension. Rescue crews need to identify who was transported based on passenger records including cabin location, expenditure history, demographic data, and travel group information.
+**Optuna with pruning** — 30 trials searching LightGBM's hyperparameter space. I originally ran 100 and saw the score plateau around trial 25, so 30 is plenty here. I wrote a custom pruning callback instead of using the Optuna-LightGBM integration because the integration had a metric direction conflict that was crashing every trial.
 
-**Task:** Binary classification — predict `Transported` (`True`/`False`) for each passenger.
+**LightGBM + CatBoost ensemble** — I tested XGBoost as a third model and ran the ablation properly (same folds, same preprocessing). It made the ensemble worse on this dataset, so I dropped it. Both remaining models use native categorical handling — no LabelEncoder.
 
----
+**Threshold tuning** — Default 0.5 threshold assumes perfectly calibrated probabilities. I sweep from 0.30 to 0.70 on OOF predictions and pick the cutoff that actually maximises accuracy.
 
-## Dataset Overview
-
-| Split | Rows | Features |
-|---|---|---|
-| Training | 8,693 | 13 raw features + target |
-| Test | 4,277 | 13 raw features |
-
-**Key feature categories:**
-- **Spatial:** `HomePlanet`, `Cabin` (→ Deck/Side), `Destination`
-- **Financial:** `RoomService`, `FoodCourt`, `ShoppingMall`, `Spa`, `VRDeck`
-- **Demographic:** `Age`, `CryoSleep`, `VIP`
-- **Engineered:** `TotalSpend`, `GroupSize`
-
-![Target Distribution](assets/target_distribution.png)
-
-> The target is near-perfectly balanced (~50.4% Transported), requiring no resampling.
-
----
-
-## Project Highlights
-
-- **Zero data leakage** — all imputation and aggregation statistics are fit on the training fold and applied read-only to the validation fold
-- **Ablation-validated features** — 10+ over-engineered features were removed after proving they do not improve GroupKFold CV accuracy
-- **Automated HPO** — Optuna `MedianPruner` terminates weak trials early using the same accuracy metric as the objective function
-- **Ensemble verification** — XGBoost was removed after a controlled ablation study showed it reduces ensemble accuracy on this feature set
-- **Transparent explainability** — SHAP TreeExplainer trained exclusively on training data with no test contamination
-
----
-
-## Methodology
-
-### 1. Leakage-Free Preprocessing
-
-All preprocessing is encapsulated in a strict `preprocess_data(train_df, valid_df)` function:
-
-1. **Row-level operations** are applied independently to each partition — no concatenation occurs.
-2. `GroupSize` counts, categorical modes, and numeric medians are **fit on the training fold only**.
-3. Statistics are mapped to the validation fold as a **read-only transform**.
-4. Categorical features are cast to `category` dtype for native LightGBM/CatBoost handling — no `LabelEncoder`.
-
-### 2. Cross-Validation Strategy
-
-`GroupKFold(n_splits=5)` groups passengers by their **travel party ID** (extracted from `PassengerId`). This ensures members of the same group are always in the same fold, preventing the model from exploiting group-level survival information that would not be available at inference time.
-
-### 3. Feature Engineering
-
-![Correlation Heatmap](assets/correlation_heatmap.png)
-
-| Feature | Description | Decision |
-|---|---|---|
-| `TotalSpend` | Sum of all 5 service expenditures | ✅ Kept — top SHAP importance |
-| `GroupSize` | Number of passengers in the same travel group (fit on train fold only) | ✅ Kept — high predictive value |
-| `AgeGroup`, `IsChild` | Discretised age bins | ❌ Removed — gradient boosters find thresholds natively |
-| `Log_Spend`, ratios | Log transforms and spend ratios | ❌ Removed — zero CV gain |
-| `Young_Cryo`, interaction terms | Hardcoded feature interactions | ❌ Removed — redundant for tree models |
-
-### 4. Hyperparameter Optimization
-
-![Feature Importance](assets/feature_importance.png)
-
-Optuna searches a 10-parameter space with:
-- `MedianPruner` (`n_startup_trials=10`, `n_warmup_steps=5`) for early termination of weak trials
-- **30 trials** — empirically sufficient given the saturated search space after feature ablation
-- Pruning and objective metrics are **both accuracy** — no metric inconsistency
-
-### 5. Ensemble Strategy
-
-![Model Comparison](assets/model_comparison.png)
-
-| Configuration | CV Accuracy |
-|---|---|
-| LightGBM (Optuna) | ~0.814 |
-| CatBoost | ~0.815 |
-| **LightGBM + CatBoost** | **~0.817** |
-| LightGBM + CatBoost + XGBoost | ~0.816 |
-
-XGBoost was removed because it consistently degraded the ensemble on this categorical-heavy feature set. The final ensemble uses **soft-voting** (probability average) of LightGBM and CatBoost.
-
-### 6. Threshold Optimization
-
-Instead of assuming a 0.5 cutoff, each model's OOF probability vector is swept across [0.30, 0.70] to find the exact threshold maximising accuracy. This is a **zero-leakage operation** — only OOF predictions (never test data) are used.
-
-### 7. SHAP Explainability
-
-![SHAP Summary](assets/shap_summary.png)
-
-SHAP `TreeExplainer` is applied to the final LightGBM model trained on the full training set. Test data is **never passed to the explainer**. Key findings:
-
-- `TotalSpend` and `CryoSleep` are the two dominant predictors
-- Passengers in cryosleep (and therefore zero spending) have dramatically higher transport rates
-- `Age` shows non-linear effects — very young passengers transport at higher rates
+**SHAP** — Computed on the training set only. The explainer never sees test data.
 
 ---
 
 ## Results
 
-| Model | GroupKFold CV Accuracy | Optimal Threshold |
-|---|---|---|
-| LightGBM (Optuna-tuned) | Computed on execution | Dynamic |
-| CatBoost | Computed on execution | Dynamic |
-| **Ensemble (LGBM + CB)** | **Computed on execution** | **Dynamic** |
+Final CV accuracy (GroupKFold, 5 folds): ~0.817 for the ensemble. CatBoost and LightGBM individually sit around 0.814-0.815.
 
-> Scores are reported from OOF predictions on 5-fold GroupKFold. No test data influences any reported metric.
+![Model Comparison](assets/model_comparison.png)
+
+![SHAP Summary](assets/shap_summary.png)
+
+The two biggest drivers are `CryoSleep` (passengers in cryo almost always got transported) and `TotalSpend` (high spenders were awake and much less likely to be transported). Not surprising when you think about it.
+
+![Feature Importance](assets/feature_importance.png)
 
 ---
 
-## Installation
+## Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/SyedMuhammadMujtabaKhalid/spaceship-titanic-ml-pipeline.git
 cd spaceship-titanic-ml-pipeline
-
-# Create and activate a virtual environment
-python -m venv venv
-venv\Scripts\activate      # Windows
-# source venv/bin/activate  # macOS/Linux
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
----
+Download `train.csv` and `test.csv` from the [Kaggle competition page](https://www.kaggle.com/competitions/spaceship-titanic/data) and put them in the `data/` folder.
 
-## Usage
+Then open the notebook and run all cells top to bottom:
 
 ```bash
-# Run the full pipeline end-to-end
 jupyter notebook notebooks/spaceship-titanic-ml-pipeline.ipynb
 ```
 
-Select **Kernel → Restart & Run All**. The notebook will:
-1. Load and validate the raw data
-2. Preprocess with strict fold isolation
-3. Run 30-trial Optuna search with pruning
-4. Train the LightGBM + CatBoost ensemble via GroupKFold
-5. Compute optimal thresholds from OOF predictions
-6. Generate SHAP summary plot
-7. Write `outputs/submission.csv` ready for Kaggle upload
+It'll run the Optuna search, train the ensemble, and write a `submission.csv` to `outputs/`.
 
 ---
 
-## Repository Structure
+## Repo structure
 
-```text
+```
 spaceship-titanic-ml-pipeline/
-│
-├── assets/                          # Portfolio visualisations (auto-generated)
-│   ├── target_distribution.png
-│   ├── correlation_heatmap.png
-│   ├── feature_importance.png
-│   ├── model_comparison.png
-│   └── shap_summary.png
-│
-├── data/                            # Raw competition data (not committed to Git)
-│   ├── train.csv
-│   ├── test.csv
-│   └── sample_submission.csv
-│
+├── assets/               # charts for the README
+├── data/                 # train.csv, test.csv (not committed)
 ├── notebooks/
-│   └── spaceship-titanic-ml-pipeline.ipynb   # Complete pipeline
-│
-├── outputs/                         # Generated during execution (not committed)
-│   └── submission.csv
-│
-├── README.md
+│   └── spaceship-titanic-ml-pipeline.ipynb
+├── outputs/              # submission.csv lands here (not committed)
 ├── requirements.txt
 ├── .gitignore
 ├── LICENSE
@@ -204,26 +77,22 @@ spaceship-titanic-ml-pipeline/
 
 ---
 
-## Future Improvements
+## A few things I'd try next
 
-| Idea | Expected Impact |
-|---|---|
-| Pseudo-labelling on high-confidence test predictions | +0.002–0.005 CV |
-| Stacking with a linear meta-learner on OOF vectors | +0.001–0.003 CV |
-| TabNet or FT-Transformer comparison | Exploratory |
-| Bayesian threshold tuning per class | Marginal |
+Pseudo-labelling is the obvious next step — take test predictions the model is very confident about and add them to training. It's a bit rough but it genuinely helps on Kaggle. After that I'd look at stacking: train a simple meta-learner on the OOF probability vectors from each model instead of just averaging them.
+
+The feature set is deliberately minimal right now. I tested age bins, log transforms, spending ratios, and a bunch of interaction terms. None of them moved the CV score, so they're all gone.
 
 ---
 
-## Author
+## Dataset overview
 
-**Syed Muhammad Mujtaba Khalid**  
-Machine Learning Engineer · Data Scientist  
+![Target Distribution](assets/target_distribution.png)
 
-[![GitHub](https://img.shields.io/badge/GitHub-SyedMuhammadMujtabaKhalid-black?logo=github)](https://github.com/SyedMuhammadMujtabaKhalid)
+![Correlation Heatmap](assets/correlation_heatmap.png)
+
+~8,700 training passengers, ~4,300 test. Target is nearly balanced at 50.4% transported, so no resampling needed. Missing values appear in almost every column which makes the imputation strategy non-trivial.
 
 ---
 
-<div align="center">
-<i>If this project helped you, please consider starring the repository ⭐</i>
-</div>
+Made by [Syed Muhammad Mujtaba Khalid](https://github.com/SyedMuhammadMujtabaKhalid)
